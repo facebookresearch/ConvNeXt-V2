@@ -2,7 +2,7 @@
 
 This repo contains the PyTorch version of *8* model definitions (*Atto, Femto, Pico, Nano, Tiny, Base, Large, Huge*), pre-training/fine-tuning code and pre-trained weights (converted from JAX weights trained on TPU) for our ConvNeXt V2 paper.
 
-> [**ConvNeXt V2: Co-designing and Scaling ConvNets with Masked Autoencoders**](https://arxiv.com/update_me)<br>
+> [**ConvNeXt V2: Co-designing and Scaling ConvNets with Masked Autoencoders**](http://arxiv.org/abs/2301.00808)<br>
 > [Sanghyun Woo](https://sites.google.com/view/sanghyunwoo/), [Shoubhik Debnath](https://www.linkedin.com/in/shoubhik-debnath-41268570/), [Ronghang Hu](https://ronghanghu.com/), [Xinlei Chen](https://xinleic.xyz/), [Zhuang Liu](https://liuzhuang13.github.io/), [In So Kweon](https://scholar.google.com/citations?user=XA8EOlEAAAAJ&hl=en) and [Saining Xie](https://sainingxie.com)\
 > <br>KAIST, Meta AI and New York University<br>
 
@@ -99,10 +99,10 @@ The majority of ConvNeXt-V2 is licensed under CC-BY-NC, however portions of the 
 ## Citation
 If you find this repository helpful, please consider citing:
 ```bibtex
-@article{Woo2022ConvNeXtV2,
+@article{Woo2023ConvNeXtV2,
   title={ConvNeXt V2: Co-designing and Scaling ConvNets with Masked Autoencoders},
   author={Sanghyun Woo, Shoubhik Debnath, Ronghang Hu, Xinlei Chen, Zhuang Liu, In So Kweon and Saining Xie},
-  year={2022},
-  journal={arXiv preprint arXiv:FIX_ME},
+  year={2023},
+  journal={arXiv preprint arXiv:2301.00808},
 }
 ```
