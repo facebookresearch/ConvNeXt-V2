@@ -16,7 +16,7 @@ pip install torch==1.8.0+cu111 torchvision==0.9.0+cu111 -f https://download.pyto
 
 Clone this repo and install required packages:
 ```
-git clone https://github.com/facebookresearch/ConvNeXtV2.git
+git clone https://github.com/facebookresearch/ConvNeXt-V2.git
 pip install timm==0.3.2 tensorboardX six
 pip install submitit
 conda install openblas-devel -c anaconda -y
