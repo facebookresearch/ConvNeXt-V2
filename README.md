@@ -94,7 +94,7 @@ This repository borrows from [timm](https://github.com/rwightman/pytorch-image-m
 We thank Ross Wightman for the initial design of the small-compute ConvNeXt model variants and the associated training recipe. We also appreciate the helpful discussions and feedback provided by Kaiming He.
 
 ## License
-The majority of ConvNeXt-V2 is licensed under CC-BY-NC, however portions of the project are available under separate license terms: Minkowski Engine is licensed under the MIT license. Please see the [LICENSE](LICENSE) file for more information.
+This project is released under the MIT license except ImageNet pre-trained and fine-tuned models which are licensed under a CC-BY-NC. Please see the [LICENSE](LICENSE) file for more information.
 
 ## Citation
 If you find this repository helpful, please consider citing:
