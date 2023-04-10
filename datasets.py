@@ -7,15 +7,55 @@
 
 
 import os
+
+from timm.data import create_transform
+from timm.data.constants import (IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD,
+                                 IMAGENET_INCEPTION_MEAN,
+                                 IMAGENET_INCEPTION_STD)
 from torchvision import datasets, transforms
 
-from timm.data.constants import \
-    IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, IMAGENET_INCEPTION_MEAN, IMAGENET_INCEPTION_STD
-from timm.data import create_transform
+#from transforms import RandomResizedCropAndInterpolationWithTwoResolution
 
+
+class DataAugmentationForEVA(object):
+    def __init__(self, input_size):
+
+    # simple augmentation                
+        self.common_transform = [
+            transforms.RandomResizedCrop(input_size, scale=(0.2, 1.0), interpolation=3),  # 3 is bicubic
+            transforms.RandomHorizontalFlip(),
+        ]
+        self.common_transform = transforms.Compose(self.common_transform)
+        self.patch_transform = [
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ]        
+        self.patch_transform = transforms.Compose(self.patch_transform)
+        self.visual_token_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.48145466, 0.4578275, 0.40821073],std=[0.26862954, 0.26130258, 0.27577711])])
+
+    def __call__(self, image):
+        #print('printing inside the dataset call')
+        #print(image.shape)
+        for_patches, for_visual_tokens = self.common_transform(image), self.common_transform(image)
+        #print(for_patches)
+        #print(for_visual_tokens.shape)
+        #print((self.patch_transform(for_patches)).shape)
+        #print((self.visual_token_transform(for_visual_tokens) ).shape)
+        return \
+            self.patch_transform(for_patches), self.visual_token_transform(for_visual_tokens)            
+
+def build_convnextclip_pretraining_dataset(args, is_train=True):
+    transform = DataAugmentationForEVA(args.input_size)
+    print("Data Aug = %s" % str(transform))    
+    root = os.path.join(args.data_path, 'train' if is_train else 'val')
+    dataset = datasets.ImageFolder(root, transform=transform)        
+    return dataset
+
+#validation set and for mae pretaining - this is good
 def build_dataset(is_train, args):
     transform = build_transform(is_train, args)
-
     print("Transform = ")
     if isinstance(transform, tuple):
         for trans in transform:
