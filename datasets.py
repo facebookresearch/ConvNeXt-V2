@@ -17,7 +17,7 @@ from torchvision import datasets, transforms
 #from transforms import RandomResizedCropAndInterpolationWithTwoResolution
 
 
-class DataAugmentationForEVA(object):
+class DataAugmentationForconvclip(object):
     def __init__(self, input_size):
 
     # simple augmentation                
@@ -47,7 +47,7 @@ class DataAugmentationForEVA(object):
             self.patch_transform(for_patches), self.visual_token_transform(for_visual_tokens)            
 
 def build_convnextclip_pretraining_dataset(args, is_train=True):
-    transform = DataAugmentationForEVA(args.input_size)
+    transform = DataAugmentationForconvclip(args.input_size)
     print("Data Aug = %s" % str(transform))    
     root = os.path.join(args.data_path, 'train' if is_train else 'val')
     dataset = datasets.ImageFolder(root, transform=transform)        

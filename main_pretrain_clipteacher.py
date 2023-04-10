@@ -22,11 +22,11 @@ import torchvision.transforms as transforms
 
 assert timm.__version__ == "0.3.2"  # version check
 import timm.optim.optim_factory as optim_factory
+from clip_wrapper import CLIPWrapper
 
 #import models.fcmae as fcmae
 import models.fcmaeclip as fcmae
 import utils
-from clip_wrapper import CLIPWrapper
 from datasets import build_convnextclip_pretraining_dataset
 from engine_pretrain import train_one_epoch, train_one_epoch_clip
 from utils import NativeScalerWithGradNormCount as NativeScaler

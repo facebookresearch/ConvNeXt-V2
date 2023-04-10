@@ -6,6 +6,8 @@
 # LICENSE file in the root directory of this source tree.
 
 
+from functools import partial
+
 import torch
 import torch.nn as nn
 from MinkowskiEngine import (MinkowskiConvolution,
@@ -42,6 +44,7 @@ class FCMAE(nn.Module):
         self.decoder_embed_dim = decoder_embed_dim
         self.decoder_depth = decoder_depth
         self.norm_pix_loss = norm_pix_loss
+        self.norm_layer = partial(nn.LayerNorm, eps=1e-6)
 
         # encoder
         self.encoder = SparseConvNeXtV2(
@@ -57,6 +60,7 @@ class FCMAE(nn.Module):
             dim=decoder_embed_dim, 
             drop_path=0.) for i in range(decoder_depth)]
         self.decoder = nn.Sequential(*decoder)
+        self.decoder_norm = self.norm_layer(decoder_embed_dim)
         # pred
         self.pred = nn.Conv2d(
             in_channels=decoder_embed_dim,
@@ -157,27 +161,51 @@ class FCMAE(nn.Module):
         # decoding
         x = self.decoder(x)
         # pred
-        pred = self.pred(x)
-        #remove class token here - akulsa
-        #x = x[:, 1:, :] -- do we need this here?        
+        pred = self.pred(x) #technically not required                
+        #combine later under use norm flag and only run when the flag is off
+        x = torch.einsum('ncxy->nxyc', x)
+        x = self.decoder_norm(x)
+        x = torch.einsum('nxyc->ncxy', x)        
         return pred
 
     def forward_loss(self, clip_teacher, pred, mask):
         #print('inside fwd_loss of fcmeaclip - printing clipteacher and pred shapes')
-        #print(clip_teacher.shape)                
+        #print(clip_teacher.shape)      
+          
         if len(pred.shape) == 4:
             n, c, _, _ = pred.shape
             pred = pred.reshape(n, c, -1)
             pred = torch.einsum('ncl->nlc', pred)        
         #print(pred.shape)
-        loss_func = nn.CosineSimilarity(dim=-1)
-        #clip_teacher = clip_teacher.reshape(shape=(n,8,8,12))
+        loss_func = nn.CosineSimilarity(dim=-1)        
         loss = loss_func(pred.float(), clip_teacher.float())        
         #print(clip_teacher.shape)
         # loss = loss.mean(dim=-1)  # [N, L], mean loss per patch
         loss = (loss * mask).sum() / mask.sum()  # mean loss on removed patches        
         return loss
-    
+
+    # def forward_loss(self, imgs, pred, mask):
+    #     """
+    #     imgs: [N, 3, H, W]
+    #     pred: [N, L, p*p*3]
+    #     mask: [N, L], 0 is keep, 1 is remove
+    #     """
+    #     if len(pred.shape) == 4:
+    #         n, c, _, _ = pred.shape
+    #         pred = pred.reshape(n, c, -1)
+    #         pred = torch.einsum('ncl->nlc', pred)
+
+    #     target = self.patchify(imgs)
+    #     if self.norm_pix_loss:
+    #         mean = target.mean(dim=-1, keepdim=True)
+    #         var = target.var(dim=-1, keepdim=True)
+    #         target = (target - mean) / (var + 1.e-6)**.5
+    #     loss = (pred - target) ** 2
+    #     loss = loss.mean(dim=-1)  # [N, L], mean loss per patch
+
+    #     loss = (loss * mask).sum() / mask.sum()  # mean loss on removed patches
+    #     return loss
+
     def forward(self, imgs,  clip_features, labels=None, mask_ratio=0.6):
         x, mask = self.forward_encoder(imgs, mask_ratio)
         pred = self.forward_decoder(x, mask)
@@ -185,6 +213,7 @@ class FCMAE(nn.Module):
         #print(pred.shape)
         loss = self.forward_loss(clip_features, pred, mask )
         return loss, pred, mask
+
 
 def convnextv2_atto(**kwargs):
     model = FCMAE(
