@@ -34,7 +34,7 @@ python setup.py install --blas_include_dirs=${CONDA_PREFIX}/include --blas=openb
 
 Install apex
 ```
-git clone https://github.com/NVIDIA/apex
+git clone https://github.com/NVIDIA/apex.git
 cd apex
 pip install -v --disable-pip-version-check --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" ./
 cd ..
