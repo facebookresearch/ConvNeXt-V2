@@ -37,6 +37,7 @@ def str2bool(v):
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
 
+
 class SmoothedValue(object):
     """Track a series of values and provide access to smoothed values over a
     window or the global series average.
@@ -280,24 +281,22 @@ def setup_for_distributed(is_master):
 
 
 def is_dist_avail_and_initialized():
-    if not dist.is_available():
-        return False
-    if not dist.is_initialized():
-        return False
-    return True
+    if dist.is_available() and dist.is_initialized():
+        return True
+    return False
 
 
 def get_world_size():
-    if not is_dist_avail_and_initialized():
-        return 1
-    return dist.get_world_size()
+    if is_dist_avail_and_initialized():
+        return dist.get_world_size()
+    return 1
 
 
 def get_rank():
-    if not is_dist_avail_and_initialized():
-        return 0
-    return dist.get_rank()
-
+    if is_dist_avail_and_initialized():
+        return dist.get_rank()
+    return 0
+    
 
 def is_main_process():
     return get_rank() == 0
