@@ -67,6 +67,7 @@ class SparseConvNeXtV2(nn.Module):
         head_init_scale (float): Init scaling value for classifier weights and biases. Default: 1.
     """
     def __init__(self, 
+                 patch_size=32,
                  in_chans=3, 
                  num_classes=1000, 
                  depths=[3, 3, 9, 3], 
@@ -78,7 +79,7 @@ class SparseConvNeXtV2(nn.Module):
         self.num_classes = num_classes
         self.downsample_layers = nn.ModuleList() # stem and 3 intermediate downsampling conv layers
         stem = nn.Sequential(
-            nn.Conv2d(in_chans, dims[0], kernel_size=4, stride=4),
+            nn.Conv2d(in_chans, dims[0], kernel_size=(patch_size//8), stride=(patch_size//8)),
             LayerNorm(dims[0], eps=1e-6, data_format="channels_first")
         )
         self.downsample_layers.append(stem)
@@ -120,8 +121,8 @@ class SparseConvNeXtV2(nn.Module):
                     repeat_interleave(scale, axis=2)
 
     def forward(self, x, mask):
-        num_stages = len(self.stages)
-        mask = self.upsample_mask(mask, 2**(num_stages-1))        
+        scale = int(x.shape[2] // self.downsample_layers[0][0].kernel_size[0] / (mask.shape[1] ** .5))
+        mask = self.upsample_mask(mask, scale)        
         mask = mask.unsqueeze(1).type_as(x)
         
         # patch embedding
