@@ -34,6 +34,9 @@ class FCMAE(nn.Module):
                 mask_ratio=0.6,
                 norm_pix_loss=False):
         super().__init__()
+        
+        # Patches must fit the image size
+        assert (img_size % patch_size == 0), "Patch size must fit image size."
 
         # configs
         self.img_size = img_size
@@ -45,10 +48,11 @@ class FCMAE(nn.Module):
         self.decoder_embed_dim = decoder_embed_dim
         self.decoder_depth = decoder_depth
         self.norm_pix_loss = norm_pix_loss
+        self.channels = in_chans
 
         # encoder
         self.encoder = SparseConvNeXtV2(
-            in_chans=in_chans, depths=depths, dims=dims, D=2)
+            patch_size=patch_size,in_chans=in_chans, depths=depths, dims=dims, D=2)
         # decoder
         self.proj = nn.Conv2d(
             in_channels=dims[-1], 
@@ -97,9 +101,9 @@ class FCMAE(nn.Module):
         assert imgs.shape[2] == imgs.shape[3] and imgs.shape[2] % p == 0
 
         h = w = imgs.shape[2] // p
-        x = imgs.reshape(shape=(imgs.shape[0], 3, h, p, w, p))
+        x = imgs.reshape(shape=(imgs.shape[0], imgs.shape[1], h, p, w, p))
         x = torch.einsum('nchpwq->nhwpqc', x)
-        x = x.reshape(shape=(imgs.shape[0], h * w, p**2 * 3))
+        x = x.reshape(shape=(imgs.shape[0], h * w, p**2 * imgs.shape[1]))
         return x
 
     def unpatchify(self, x):
@@ -111,9 +115,9 @@ class FCMAE(nn.Module):
         h = w = int(x.shape[1]**.5)
         assert h * w == x.shape[1]
         
-        x = x.reshape(shape=(x.shape[0], h, w, p, p, 3))
+        x = x.reshape(shape=(x.shape[0], h, w, p, p, self.channels))
         x = torch.einsum('nhwpqc->nchpwq', x)
-        imgs = x.reshape(shape=(x.shape[0], 3, h * p, h * p))
+        imgs = x.reshape(shape=(x.shape[0], self.channels, h * p, h * p))
         return imgs
 
     def gen_random_mask(self, x, mask_ratio):
@@ -147,12 +151,18 @@ class FCMAE(nn.Module):
         # encoding
         x = self.encoder(imgs, mask)
         return x, mask
+    
+    def upsample_mask(self, mask, scale):
+        assert len(mask.shape) == 2
+        p = int(mask.shape[1] ** .5)
+        return mask.reshape(-1, p, p).\
+                    repeat_interleave(scale, axis=1).\
+                    repeat_interleave(scale, axis=2)
 
     def forward_decoder(self, x, mask):
         x = self.proj(x)
         # append mask token
-        n, c, h, w = x.shape
-        mask = mask.reshape(-1, h, w).unsqueeze(1).type_as(x)
+        mask = self.upsample_mask(mask,int((x.shape[2] / (mask.shape[1] ** .5)))).unsqueeze(1).type_as(x)
         mask_token = self.mask_token.repeat(x.shape[0], 1, x.shape[2], x.shape[3])
         x = x * (1. - mask) + mask_token * mask
         # decoding
