@@ -8,6 +8,9 @@
 
 import torch
 import torch.nn as nn
+import wandb
+from time import time
+import numpy as np
 
 from MinkowskiEngine import (
     MinkowskiConvolution,
@@ -25,14 +28,15 @@ class FCMAE(nn.Module):
     def __init__(
                 self,
                 img_size=224,
-                in_chans=3,
+                in_chans=1,
                 depths=[3, 3, 9, 3],
                 dims=[96, 192, 384, 768],
                 decoder_depth=1,
                 decoder_embed_dim=512,
                 patch_size=32,
                 mask_ratio=0.6,
-                norm_pix_loss=False):
+                norm_pix_loss=False,
+        ):
         super().__init__()
         
         # Patches must fit the image size
@@ -40,6 +44,7 @@ class FCMAE(nn.Module):
 
         # configs
         self.img_size = img_size
+        self.time_since_last_img_save = time()
         self.depths = depths
         self.imds = dims
         self.patch_size = patch_size
@@ -70,7 +75,7 @@ class FCMAE(nn.Module):
             out_channels=patch_size ** 2 * in_chans,
             kernel_size=1)
 
-        self.apply(self._init_weights)
+        #self.apply(self._init_weights)
 
     def _init_weights(self, m):
         if isinstance(m, MinkowskiConvolution):
@@ -170,6 +175,19 @@ class FCMAE(nn.Module):
         # pred
         pred = self.pred(x)
         return pred
+    
+    def save_imgs(self,imgs,pred,index=0):
+        target_img = imgs[index].permute(1,2,0).detach().cpu().numpy()
+        pred_img = self.unpatchify(pred)[index].permute(1,2,0).detach().cpu().numpy()
+        x,y,c = target_img.shape
+        combined_image = np.zeros((x,y*2,1))
+        combined_image[:,:y,:] = target_img
+        combined_image[:,y:,:] = pred_img
+        images = wandb.Image(
+            combined_image, 
+            caption="Left: Target, Right: Pred"
+            )  
+        wandb.log({"Example": images})
 
     def forward_loss(self, imgs, pred, mask):
         """
@@ -183,6 +201,9 @@ class FCMAE(nn.Module):
             pred = torch.einsum('ncl->nlc', pred)
 
         target = self.patchify(imgs)
+        if time()-self.time_since_last_img_save > 300:
+            self.save_imgs(imgs,pred)
+            self.time_since_last_img_save = time()
         if self.norm_pix_loss:
             mean = target.mean(dim=-1, keepdim=True)
             var = target.var(dim=-1, keepdim=True)

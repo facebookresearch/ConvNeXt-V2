@@ -18,7 +18,7 @@ from pathlib import Path
 
 import torch
 import torch.distributed as dist
-from torch._six import inf
+from torch import inf
 
 from tensorboardX import SummaryWriter
 from collections import OrderedDict
@@ -35,7 +35,7 @@ def str2bool(v):
     elif v.lower() in ('no', 'false', 'f', 'n', '0'):
         return False
     else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
+        raise Exception('Boolean value expected.')
 
 class SmoothedValue(object):
     """Track a series of values and provide access to smoothed values over a

@@ -7,7 +7,9 @@
 
 
 import argparse
+import wandb
 import datetime
+from pathlib import Path
 import numpy as np
 import time
 import json
@@ -19,9 +21,19 @@ import torch.backends.cudnn as cudnn
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
-import timm
-assert timm.__version__ == "0.3.2"  # version check
-import timm.optim.optim_factory as optim_factory
+def add_weight_decay(model, weight_decay=1e-5, skip_list=()):
+    decay = []
+    no_decay = []
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue  # frozen weights
+        if len(param.shape) == 1 or name.endswith(".bias") or name in skip_list:
+            no_decay.append(param)
+        else:
+            decay.append(param)
+    return [
+        {'params': no_decay, 'weight_decay': 0.},
+        {'params': decay, 'weight_decay': weight_decay}]
 
 from engine_pretrain import train_one_epoch
 import models.fcmae as fcmae
@@ -32,14 +44,15 @@ from utils import str2bool
 
 def get_args_parser():
     parser = argparse.ArgumentParser('FCMAE pre-training', add_help=False)
-    parser.add_argument('--batch_size', default=64, type=int,
+    parser.add_argument('--batch_size', default=8, type=int,
                         help='Per GPU batch size')
-    parser.add_argument('--epochs', default=800, type=int)
+    parser.add_argument('--epochs', default=2000, type=int)
     parser.add_argument('--warmup_epochs', type=int, default=40, metavar='N',
                         help='epochs to warmup LR')
-    parser.add_argument('--update_freq', default=1, type=int,
+    parser.add_argument('--update_freq', default=8, type=int,
                         help='gradient accumulation step')
-    
+    parser.add_argument('--patch_size', default=32, type=int,
+                        help='Patch size')
     # Model parameters
     parser.add_argument('--model', default='convnextv2_base', type=str, metavar='MODEL',
                         help='Name of model to train')
@@ -49,7 +62,7 @@ def get_args_parser():
                         help='Masking ratio (percentage of removed patches).')
     parser.add_argument('--norm_pix_loss', action='store_true',
                         help='Use (per-patch) normalized pixels as targets for computing loss')
-    parser.set_defaults(norm_pix_loss=True)
+    parser.set_defaults(norm_pix_loss=False)
     parser.add_argument('--decoder_depth', type=int, default=1)
     parser.add_argument('--decoder_embed_dim', type=int, default=512)
     
@@ -72,7 +85,7 @@ def get_args_parser():
                         help='path where to tensorboard log')
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')
-    parser.add_argument('--seed', default=0, type=int)
+    parser.add_argument('--seed', default=1337, type=int)
     parser.add_argument('--resume', default='',
                         help='resume from checkpoint')
 
@@ -114,10 +127,12 @@ def main(args):
     
     # simple augmentation
     transform_train = transforms.Compose([
-            transforms.RandomResizedCrop(args.input_size, scale=(0.2, 1.0), interpolation=3),  # 3 is bicubic
+            transforms.RandomResizedCrop(args.input_size, scale=(0.2, 1.0), interpolation=3,ratio=(1,1)),  # 3 is bicubic
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+            #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            transforms.Grayscale()
+    ])
     dataset_train = datasets.ImageFolder(os.path.join(args.data_path, 'train'), transform=transform_train)
     print(dataset_train)
 
@@ -147,9 +162,11 @@ def main(args):
     # define the model
     model = fcmae.__dict__[args.model](
         mask_ratio=args.mask_ratio,
+        img_size=args.input_size,
         decoder_depth=args.decoder_depth,
         decoder_embed_dim=args.decoder_embed_dim,
-        norm_pix_loss=args.norm_pix_loss
+        norm_pix_loss=args.norm_pix_loss,
+        patch_size=args.patch_size
     )
     model.to(device)
 
@@ -171,11 +188,34 @@ def main(args):
     print("accumulate grad iterations: %d" % args.update_freq)
     print("effective batch size: %d" % eff_batch_size)
 
+
+    args.output_dir = f'{args.output_dir}/img_size_{args.input_size}_lr_{args.blr}_mask_ammount_{args.mask_ratio}_resnet_{False}'
+    Path(args.output_dir).mkdir(parents=True,exist_ok=True)
+
+    run = wandb.init(
+        project="sem-segmentation",
+        mode="online",
+        config={
+            "input_size": args.input_size,
+            "model": args.model,
+            "batch_size": args.batch_size,
+            "blr": args.blr,
+            "epochs": args.epochs,
+            "warmup_epochs": args.warmup_epochs,
+            "data_path": args.data_path,     
+            "output_dir": args.output_dir,
+            "mask_ratio": args.mask_ratio,
+            "patch_size": args.patch_size 
+        }
+    )
+    run.name = f'img_size_{args.input_size}_lr_{args.blr}_mask_ammount_{args.mask_ratio}_resnet_{False}'
+    run.save()
+    
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True)
         model_without_ddp = model.module
 
-    param_groups = optim_factory.add_weight_decay(model_without_ddp, args.weight_decay)
+    param_groups = add_weight_decay(model_without_ddp, args.weight_decay)
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
     print(optimizer)
     loss_scaler = NativeScaler()
@@ -205,6 +245,8 @@ def main(args):
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                         'epoch': epoch,
                         'n_parameters': n_parameters}
+        wandb.log({"epoch": epoch, "n_parameters": n_parameters})
+        wandb.log({f'train_{k}': v for k, v in train_stats.items()})
         if args.output_dir and utils.is_main_process():
             if log_writer is not None:
                 log_writer.flush()

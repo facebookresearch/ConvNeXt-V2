@@ -100,7 +100,7 @@ class SparseConvNeXtV2(nn.Module):
             self.stages.append(stage)
             cur += depths[i]
 
-        self.apply(self._init_weights)
+        #self.apply(self._init_weights)
         
     def _init_weights(self, m):
         if isinstance(m, MinkowskiConvolution):
