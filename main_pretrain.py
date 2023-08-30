@@ -113,7 +113,7 @@ def get_args_parser():
     return parser
 
 def main(args):
-    utils.init_distributed_mode(args)
+    args.distributed = False
 
     print(args)
     device = torch.device(args.device)
