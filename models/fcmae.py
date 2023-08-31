@@ -36,6 +36,7 @@ class FCMAE(nn.Module):
                 patch_size=32,
                 mask_ratio=0.6,
                 norm_pix_loss=False,
+                sigmoid = False
         ):
         super().__init__()
         
@@ -70,10 +71,19 @@ class FCMAE(nn.Module):
             drop_path=0.) for i in range(decoder_depth)]
         self.decoder = nn.Sequential(*decoder)
         # pred
-        self.pred = nn.Conv2d(
-            in_channels=decoder_embed_dim,
-            out_channels=patch_size ** 2 * in_chans,
-            kernel_size=1)
+        if sigmoid:
+            self.pred = nn.Sequential(*[
+                nn.Conv2d(
+                in_channels=decoder_embed_dim,
+                out_channels=patch_size ** 2 * in_chans,
+                kernel_size=1),
+                nn.Sigmoid()
+            ])
+        else:
+            self.pred = nn.Conv2d(
+                in_channels=decoder_embed_dim,
+                out_channels=patch_size ** 2 * in_chans,
+                kernel_size=1)
 
         #self.apply(self._init_weights)
 
@@ -204,6 +214,10 @@ class FCMAE(nn.Module):
         if time()-self.time_since_last_img_save > 300:
             self.save_imgs(imgs,pred)
             self.time_since_last_img_save = time()
+# import cv2
+# combined = (imgs * (1-self.upsample_mask(mask,32).unsqueeze(1))) + (self.unpatchify(pred) * self.upsample_mask(mask,32).unsqueeze(1))
+# for i in range(len(combined)):
+#    cv2.imwrite(f'comb_{i}.png',combined[i].permute(1,2,0).detach().cpu().numpy()*255)
         if self.norm_pix_loss:
             mean = target.mean(dim=-1, keepdim=True)
             var = target.var(dim=-1, keepdim=True)

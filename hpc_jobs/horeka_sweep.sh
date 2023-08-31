@@ -9,7 +9,7 @@
 #SBATCH --output=%j_output.txt
 #SBATCH --job-name=hyperparam-sem-seg
 
-export SWEEPID="lucare/sem-segmentation/nrrcv611"
+export SWEEPID="kit-iai-ibcs-dl/sem-segmentation/rfijcjry"
 
 # aendern?
 NUM_COUNTS=1

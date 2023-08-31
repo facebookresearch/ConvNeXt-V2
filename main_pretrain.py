@@ -39,7 +39,7 @@ from engine_pretrain import train_one_epoch
 import models.fcmae as fcmae
 
 import utils
-from utils import NativeScalerWithGradNormCount as NativeScaler
+from utils import NativeScalerWithGradNormCount as NativeScaler, dedense_checkpoint_keys
 from utils import str2bool
 
 def get_args_parser():
@@ -53,6 +53,10 @@ def get_args_parser():
                         help='gradient accumulation step')
     parser.add_argument('--patch_size', default=32, type=int,
                         help='Patch size')
+    parser.add_argument('--pretraining', default=None, type=str,
+                    help='Per GPU batch size')
+    parser.add_argument('--sigmoid', default=False, type=bool,
+                    help='Per GPU batch size')
     # Model parameters
     parser.add_argument('--model', default='convnextv2_base', type=str, metavar='MODEL',
                         help='Name of model to train')
@@ -67,7 +71,7 @@ def get_args_parser():
     parser.add_argument('--decoder_embed_dim', type=int, default=512)
     
     # Optimizer parameters
-    parser.add_argument('--weight_decay', type=float, default=0.05,
+    parser.add_argument('--weight_decay', type=float, default=0.025,
                         help='weight decay (default: 0.05)')
     parser.add_argument('--lr', type=float, default=None, metavar='LR',
                         help='learning rate (absolute lr)')
@@ -166,7 +170,8 @@ def main(args):
         decoder_depth=args.decoder_depth,
         decoder_embed_dim=args.decoder_embed_dim,
         norm_pix_loss=args.norm_pix_loss,
-        patch_size=args.patch_size
+        patch_size=args.patch_size,
+        sigmoid = args.sigmoid
     )
     model.to(device)
 
@@ -223,6 +228,18 @@ def main(args):
     utils.auto_load_model(
         args=args, model=model, model_without_ddp=model_without_ddp,
         optimizer=optimizer, loss_scaler=loss_scaler)
+    
+    
+    if args.pretraining == 'ssl':  
+        preloaded_weights = torch.load('/home/ws/kg2371/projects/ConvNeXt-V2/pretrained_online/pretrained_ssl.pt')
+        preloaded_weights = dedense_checkpoint_keys(preloaded_weights['model'])
+        preloaded_weights['encoder.downsample_layers.0.0.weight'] = torch.mean(preloaded_weights['encoder.downsample_layers.0.0.weight'],dim=1).unsqueeze(1)
+        model.load_state_dict(preloaded_weights,strict=False)
+    if args.pretraining == 'ft':
+        preloaded_weights = torch.load('/home/ws/kg2371/projects/ConvNeXt-V2/pretrained_online/pretrained_ft.pt')
+        preloaded_weights = dedense_checkpoint_keys(preloaded_weights['model'])
+        preloaded_weights['encoder.downsample_layers.0.0.weight'] = torch.mean(preloaded_weights['encoder.downsample_layers.0.0.weight'],dim=1).unsqueeze(1)
+        model.load_state_dict(preloaded_weights,strict=False)     
 
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
@@ -240,6 +257,11 @@ def main(args):
         if args.output_dir and args.save_ckpt:
             if (epoch + 1) % args.save_ckpt_freq == 0 or epoch + 1 == args.epochs:
                 utils.save_model(
+                    args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
+                    loss_scaler=loss_scaler, epoch=epoch)
+            if (epoch + 1) % 250 == 0:
+                # save every 250 epochs
+                utils.save_model_intermediate(
                     args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                     loss_scaler=loss_scaler, epoch=epoch)
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
