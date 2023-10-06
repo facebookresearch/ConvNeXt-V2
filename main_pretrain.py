@@ -44,9 +44,9 @@ from utils import str2bool
 
 def get_args_parser():
     parser = argparse.ArgumentParser('FCMAE pre-training', add_help=False)
-    parser.add_argument('--batch_size', default=8, type=int,
+    parser.add_argument('--batch_size', default=10, type=int,
                         help='Per GPU batch size')
-    parser.add_argument('--epochs', default=2000, type=int)
+    parser.add_argument('--epochs', default=2300, type=int)
     parser.add_argument('--warmup_epochs', type=int, default=40, metavar='N',
                         help='epochs to warmup LR')
     parser.add_argument('--update_freq', default=8, type=int,
@@ -194,7 +194,7 @@ def main(args):
     print("effective batch size: %d" % eff_batch_size)
 
 
-    args.output_dir = f'{args.output_dir}/img_size_{args.input_size}_lr_{args.blr}_mask_ammount_{args.mask_ratio}_resnet_{False}'
+    args.output_dir = f'{args.output_dir}/img_size_{args.input_size}_lr_{args.blr}_mask_ammount_{args.mask_ratio}_sigmoid_{args.sigmoid}_pretraining_{args.pretraining}'
     Path(args.output_dir).mkdir(parents=True,exist_ok=True)
 
     run = wandb.init(
@@ -210,10 +210,12 @@ def main(args):
             "data_path": args.data_path,     
             "output_dir": args.output_dir,
             "mask_ratio": args.mask_ratio,
-            "patch_size": args.patch_size 
+            "patch_size": args.patch_size,
+            "sigmoid": args.sigmoid,
+            "pretraining": args.pretraining
         }
     )
-    run.name = f'img_size_{args.input_size}_lr_{args.blr}_mask_ammount_{args.mask_ratio}_resnet_{False}'
+    run.name = f'img_size_{args.input_size}_lr_{args.blr}_mask_ammount_{args.mask_ratio}_sigmoid_{args.sigmoid}_pretraining_{args.pretraining}'
     run.save()
     
     if args.distributed:

@@ -186,16 +186,21 @@ class FCMAE(nn.Module):
         pred = self.pred(x)
         return pred
     
-    def save_imgs(self,imgs,pred,index=0):
+    def save_imgs(self,imgs,pred,combined,index=0):
         target_img = imgs[index].permute(1,2,0).detach().cpu().numpy()
         pred_img = self.unpatchify(pred)[index].permute(1,2,0).detach().cpu().numpy()
+        combined_img = combined[index].permute(1,2,0).detach().cpu().numpy()
+        target_img = (target_img - np.min(target_img))/np.ptp(target_img)
+        pred_img = (pred_img - np.min(pred_img))/np.ptp(pred_img)
+        combined_img = (combined_img - np.min(combined_img))/np.ptp(combined_img)
         x,y,c = target_img.shape
-        combined_image = np.zeros((x,y*2,1))
+        combined_image = np.zeros((x,y*3,1))
         combined_image[:,:y,:] = target_img
-        combined_image[:,y:,:] = pred_img
+        combined_image[:,y:y*2,:] = pred_img
+        combined_image[:,y*2:,:] = combined_img
         images = wandb.Image(
             combined_image, 
-            caption="Left: Target, Right: Pred"
+            caption="Left: Target, Middle: Pred, Right: Combined"
             )  
         wandb.log({"Example": images})
 
@@ -211,8 +216,9 @@ class FCMAE(nn.Module):
             pred = torch.einsum('ncl->nlc', pred)
 
         target = self.patchify(imgs)
-        if time()-self.time_since_last_img_save > 300:
-            self.save_imgs(imgs,pred)
+        if time()-self.time_since_last_img_save > 3600:
+            combined = (imgs * (1-self.upsample_mask(mask,32).unsqueeze(1))) + (self.unpatchify(pred) * self.upsample_mask(mask,32).unsqueeze(1))
+            self.save_imgs(imgs,pred,combined)
             self.time_since_last_img_save = time()
 # import cv2
 # combined = (imgs * (1-self.upsample_mask(mask,32).unsqueeze(1))) + (self.unpatchify(pred) * self.upsample_mask(mask,32).unsqueeze(1))
