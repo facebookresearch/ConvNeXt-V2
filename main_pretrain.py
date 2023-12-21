@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 
 import torch
+import torch.distributed as dist
 import torch.backends.cudnn as cudnn
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
@@ -46,7 +47,7 @@ def get_args_parser():
     parser = argparse.ArgumentParser('FCMAE pre-training', add_help=False)
     parser.add_argument('--batch_size', default=10, type=int,
                         help='Per GPU batch size')
-    parser.add_argument('--epochs', default=2300, type=int)
+    parser.add_argument('--epochs', default=3000, type=int)
     parser.add_argument('--warmup_epochs', type=int, default=40, metavar='N',
                         help='epochs to warmup LR')
     parser.add_argument('--update_freq', default=8, type=int,
@@ -119,8 +120,6 @@ def get_args_parser():
     return parser
 
 def main(args):
-    args.distributed = False
-
     print(args)
     device = torch.device(args.device)
 
@@ -203,6 +202,7 @@ def main(args):
     run = wandb.init(
         project="sem-segmentation",
         mode="online",
+        group="DDP",
         config={
             "input_size": args.input_size,
             "model": args.model,
@@ -234,7 +234,8 @@ def main(args):
         optimizer=optimizer, loss_scaler=loss_scaler)
     
     
-    if args.pretraining == 'ssl':  
+    if args.pretraining == 'ssl':
+        #preloaded_weights = torch.load('/home/hk-project-test-dl4pm/hgf_xda8301/ConvNeXt-V2/ssl_pretrain/pretrained_ssl.pt')
         preloaded_weights = torch.load('/home/ws/kg2371/projects/ConvNeXt-V2/pretrained_online/pretrained_ssl.pt')
         preloaded_weights = dedense_checkpoint_keys(preloaded_weights['model'])
         preloaded_weights['encoder.downsample_layers.0.0.weight'] = torch.mean(preloaded_weights['encoder.downsample_layers.0.0.weight'],dim=1).unsqueeze(1)
@@ -282,10 +283,29 @@ def main(args):
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
+    wandb.finish()
+
 
 if __name__ == '__main__':
+    
+    # distributeeeed
+    distributed=False
+    if "WORLD_SIZE" in os.environ:
+        world_size = int(os.environ["WORLD_SIZE"])
+        distributed = world_size > 1
+        ngpus_per_node = torch.cuda.device_count()
+    if distributed:
+        rank = int(os.environ['SLURM_PROCID'])
+        print('device count')
+        print(torch.cuda.device_count())
+        gpu = rank % torch.cuda.device_count()
+        dist_backend = 'nccl'
+        dist_url = 'env://'
+        dist.init_process_group(backend=dist_backend, init_method=dist_url, world_size=world_size, rank=rank)
     args = get_args_parser()
     args = args.parse_args()
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
+    args.distributed = distributed
+    args.gpu = gpu
     main(args)
