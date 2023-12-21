@@ -56,7 +56,9 @@ def get_args_parser():
     parser.add_argument('--pretraining', default=None, type=str,
                     help='Per GPU batch size')
     parser.add_argument('--sigmoid', default=False, type=bool,
-                    help='Per GPU batch size')
+                    help='use sigmoid')
+    parser.add_argument('--use_fpn', default=False, type=bool,
+                    help='use fpn')
     # Model parameters
     parser.add_argument('--model', default='convnextv2_base', type=str, metavar='MODEL',
                         help='Name of model to train')
@@ -171,7 +173,8 @@ def main(args):
         decoder_embed_dim=args.decoder_embed_dim,
         norm_pix_loss=args.norm_pix_loss,
         patch_size=args.patch_size,
-        sigmoid = args.sigmoid
+        sigmoid = args.sigmoid,
+        use_fpn = args.use_fpn
     )
     model.to(device)
 
@@ -224,7 +227,6 @@ def main(args):
 
     param_groups = add_weight_decay(model_without_ddp, args.weight_decay)
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
-    print(optimizer)
     loss_scaler = NativeScaler()
 
     utils.auto_load_model(

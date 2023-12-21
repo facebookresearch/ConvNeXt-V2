@@ -10,6 +10,10 @@ import torch
 import torch.nn as nn
 from timm.models.layers import trunc_normal_
 
+from models.sparse_feature_pyramid_nework import SparseFeaturePyramidNetwork, SparseLastLevelMaxPool
+from torchvision.ops.feature_pyramid_network import LastLevelMaxPool
+
+
 from .utils import (
     LayerNorm,
     MinkowskiLayerNorm,
@@ -73,6 +77,7 @@ class SparseConvNeXtV2(nn.Module):
                  depths=[3, 3, 9, 3], 
                  dims=[96, 192, 384, 768], 
                  drop_path_rate=0., 
+                 use_fpn=False,
                  D=3):
         super().__init__()
         self.depths = depths
@@ -99,8 +104,17 @@ class SparseConvNeXtV2(nn.Module):
             )
             self.stages.append(stage)
             cur += depths[i]
+            
+        # feature pyramid network
+        if use_fpn:
+            self.fpn = SparseFeaturePyramidNetwork(
+                        in_channels_list=[128, 256, 512, 1024],
+                        out_channels=256,
+                        extra_blocks=SparseLastLevelMaxPool(),
+            )
+        self.use_fpn = use_fpn
 
-        #self.apply(self._init_weights)
+        self.apply(self._init_weights)# init weights fuer fpn
         
     def _init_weights(self, m):
         if isinstance(m, MinkowskiConvolution):
@@ -131,10 +145,15 @@ class SparseConvNeXtV2(nn.Module):
         
         # sparse encoding
         x = to_sparse(x)
+        x_dict = {}
         for i in range(4):
             x = self.downsample_layers[i](x) if i > 0 else x
             x = self.stages[i](x)
-        
-        # densify
-        x = x.dense()[0]
+            x_dict[str(i)] = x
+            
+        if self.use_fpn:   
+            x = self.fpn(x_dict)
+            x = x['0'].dense()[0]
+        else:
+            x = x.dense()[0]
         return x
