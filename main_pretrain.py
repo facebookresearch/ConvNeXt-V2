@@ -47,7 +47,7 @@ def get_args_parser():
     parser = argparse.ArgumentParser('FCMAE pre-training', add_help=False)
     parser.add_argument('--batch_size', default=10, type=int,
                         help='Per GPU batch size')
-    parser.add_argument('--epochs', default=3000, type=int)
+    parser.add_argument('--epochs', default=5000, type=int)
     parser.add_argument('--warmup_epochs', type=int, default=40, metavar='N',
                         help='epochs to warmup LR')
     parser.add_argument('--update_freq', default=8, type=int,
@@ -165,6 +165,7 @@ def main(args):
     )
 
     # define the model
+    torch.cuda.set_device(device)
     model = fcmae.__dict__[args.model](
         mask_ratio=args.mask_ratio,
         img_size=args.input_size,
@@ -202,7 +203,7 @@ def main(args):
     run = wandb.init(
         project="sem-segmentation",
         mode="online",
-        group="DDP",
+        group="DDP75",
         config={
             "input_size": args.input_size,
             "model": args.model,
@@ -235,8 +236,8 @@ def main(args):
     
     
     if args.pretraining == 'ssl':
-        #preloaded_weights = torch.load('/home/hk-project-test-dl4pm/hgf_xda8301/ConvNeXt-V2/ssl_pretrain/pretrained_ssl.pt')
-        preloaded_weights = torch.load('/home/ws/kg2371/projects/ConvNeXt-V2/pretrained_online/pretrained_ssl.pt')
+        preloaded_weights = torch.load('/home/hk-project-test-dl4pm/hgf_xda8301/ConvNeXt-V2/ssl_pretrain/pretrained_ssl.pt')
+        #preloaded_weights = torch.load('/home/ws/kg2371/projects/ConvNeXt-V2/pretrained_online/pretrained_ssl.pt')
         preloaded_weights = dedense_checkpoint_keys(preloaded_weights['model'])
         preloaded_weights['encoder.downsample_layers.0.0.weight'] = torch.mean(preloaded_weights['encoder.downsample_layers.0.0.weight'],dim=1).unsqueeze(1)
         model.load_state_dict(preloaded_weights,strict=False)
@@ -308,4 +309,5 @@ if __name__ == '__main__':
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     args.distributed = distributed
     args.gpu = gpu
+    args.device = gpu
     main(args)

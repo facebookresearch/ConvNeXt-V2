@@ -348,10 +348,13 @@ def init_distributed_mode(args):
 def all_reduce_mean(x):
     world_size = get_world_size()
     if world_size > 1:
-        x_reduce = torch.tensor(x).cuda()
-        dist.all_reduce(x_reduce)
-        x_reduce /= world_size
-        return x_reduce.item()
+        try:
+            x_reduce = torch.tensor(x).cuda()
+            dist.all_reduce(x_reduce)
+            x_reduce /= world_size
+            return x_reduce.item()
+        except:
+            return 1000
     else:
         return x
 
