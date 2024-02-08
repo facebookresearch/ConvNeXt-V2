@@ -18,7 +18,11 @@ from pathlib import Path
 
 import torch
 import torch.distributed as dist
-from torch import inf
+try:
+    from torch import inf
+except ImportError:
+    from torch._six import inf
+
 
 from tensorboardX import SummaryWriter
 from collections import OrderedDict
