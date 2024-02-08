@@ -11,6 +11,9 @@
 last_horeka_ressources/
 
 ssl_trainings/
+pretrained_online/
+ssl_over_holidays/
+big_dataset/
 
 wandb/
 

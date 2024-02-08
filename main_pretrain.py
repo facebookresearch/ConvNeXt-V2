@@ -15,6 +15,7 @@ import time
 import json
 import os
 from pathlib import Path
+from datetime import datetime
 
 import torch
 import torch.distributed as dist
@@ -201,9 +202,9 @@ def main(args):
     Path(args.output_dir).mkdir(parents=True,exist_ok=True)
 
     run = wandb.init(
-        project="sem-segmentation",
+        project="sem-segmentation-convnextv2",
         mode="online",
-        group="DDP75",
+        group=datetime.now().strftime("%Y/%d/%m/%H/%M"),
         config={
             "input_size": args.input_size,
             "model": args.model,
@@ -250,7 +251,7 @@ def main(args):
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
     for epoch in range(args.start_epoch, args.epochs):
-        if args.distributed:
+        if hasattr(args,'distributed'):
             data_loader_train.sampler.set_epoch(epoch)
         if log_writer is not None:
             log_writer.set_step(epoch * num_training_steps_per_epoch * args.update_freq)
@@ -307,7 +308,8 @@ if __name__ == '__main__':
     args = args.parse_args()
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
-    args.distributed = distributed
-    args.gpu = gpu
-    args.device = gpu
+    if distributed:
+        args.distributed = distributed
+        args.gpu = gpu
+        args.device = gpu
     main(args)
