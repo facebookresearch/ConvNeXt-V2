@@ -46,6 +46,8 @@ from utils import str2bool
 
 def get_args_parser():
     parser = argparse.ArgumentParser('FCMAE pre-training', add_help=False)
+    parser.add_argument('--horeka', type=bool,
+                    help='If training is on horeka or local machine')
     parser.add_argument('--batch_size', default=10, type=int,
                         help='Per GPU batch size')
     parser.add_argument('--epochs', default=5000, type=int)
@@ -166,7 +168,8 @@ def main(args):
     )
 
     # define the model
-    torch.cuda.set_device(device)
+    if args.horeka:
+        torch.cuda.set_device(device)
     model = fcmae.__dict__[args.model](
         mask_ratio=args.mask_ratio,
         img_size=args.input_size,
@@ -203,7 +206,7 @@ def main(args):
 
     run = wandb.init(
         project="sem-segmentation-convnextv2",
-        mode="online",
+        mode="disabled",
         group=datetime.now().strftime("%Y/%d/%m/%H/%M"),
         config={
             "input_size": args.input_size,
@@ -223,7 +226,7 @@ def main(args):
     run.name = f'img_size_{args.input_size}_lr_{args.blr}_mask_ammount_{args.mask_ratio}_sigmoid_{args.sigmoid}_pretraining_{args.pretraining}'
     run.save()
     
-    if args.distributed:
+    if hasattr(args,'distributed'):
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True)
         model_without_ddp = model.module
 
@@ -237,8 +240,10 @@ def main(args):
     
     
     if args.pretraining == 'ssl':
-        preloaded_weights = torch.load('/home/hk-project-test-dl4pm/hgf_xda8301/ConvNeXt-V2/ssl_pretrain/pretrained_ssl.pt')
-        #preloaded_weights = torch.load('/home/ws/kg2371/projects/ConvNeXt-V2/pretrained_online/pretrained_ssl.pt')
+        if args.horeka:
+            preloaded_weights = torch.load('/home/hk-project-test-dl4pm/hgf_xda8301/ConvNeXt-V2/ssl_pretrain/pretrained_ssl.pt')
+        else:
+            preloaded_weights = torch.load('/home/ws/kg2371/projects/ConvNeXt-V2/pretrained_online/pretrained_ssl.pt')
         preloaded_weights = dedense_checkpoint_keys(preloaded_weights['model'])
         preloaded_weights['encoder.downsample_layers.0.0.weight'] = torch.mean(preloaded_weights['encoder.downsample_layers.0.0.weight'],dim=1).unsqueeze(1)
         model.load_state_dict(preloaded_weights,strict=False)
