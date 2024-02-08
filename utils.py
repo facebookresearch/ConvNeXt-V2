@@ -354,6 +354,7 @@ def all_reduce_mean(x):
             x_reduce /= world_size
             return x_reduce.item()
         except:
+            print('REDUCE DID NOT WORK HUH')
             return 1000
     else:
         return x
