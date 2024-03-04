@@ -470,6 +470,22 @@ def save_model_intermediate(args, epoch, model, model_without_ddp, optimizer, lo
     if model_ema is not None:
         to_save['model_ema'] = get_state_dict(model_ema)
     save_on_master(to_save, checkpoint_path)
+    
+def save_model_val_loss(args, epoch, model, model_without_ddp, optimizer, loss_scaler,val_loss, model_ema=None):
+    output_dir = Path(f'{args.output_dir}/val_loss')
+    Path(f'{args.output_dir}/val_loss').mkdir(parents=True, exist_ok=True)
+    checkpoint_path = output_dir / ('checkpoint-val_loss_%s.pth' % str(val_loss))
+    to_save = {
+        'model': model_without_ddp.state_dict(),
+        'optimizer': optimizer.state_dict(),
+        'epoch': epoch,
+        'scaler': loss_scaler.state_dict(),
+        'args': args,
+    }
+    if model_ema is not None:
+        to_save['model_ema'] = get_state_dict(model_ema)
+    save_on_master(to_save, checkpoint_path)
+    return checkpoint_path
 
 def save_model(args, epoch, model, model_without_ddp, optimizer, loss_scaler, model_ema=None):
     output_dir = Path(args.output_dir)

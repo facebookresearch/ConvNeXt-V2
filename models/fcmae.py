@@ -221,7 +221,7 @@ class FCMAE(nn.Module):
             target = self.patchify(imgs,p=4)
         else:
             target = self.patchify(imgs)
-        if time()-self.time_since_last_img_save > 1800: # 3600
+        if time()-self.time_since_last_img_save > 10800: # 3600
             unpatch_factor = None
             upsample_factor = 32
             if self.use_fpn:
@@ -233,10 +233,6 @@ class FCMAE(nn.Module):
             combined = imgs_write + preds_write
             self.save_imgs(imgs,pred,combined,unpatch_factor=unpatch_factor)
             self.time_since_last_img_save = time()
-# import cv2
-# combined = (imgs * (1-self.upsample_mask(mask,32).unsqueeze(1))) + (self.unpatchify(pred) * self.upsample_mask(mask,32).unsqueeze(1))
-# for i in range(len(combined)):
-#    cv2.imwrite(f'comb_{i}.png',combined[i].permute(1,2,0).detach().cpu().numpy()*255)
         if self.norm_pix_loss:
             mean = target.mean(dim=-1, keepdim=True)
             var = target.var(dim=-1, keepdim=True)

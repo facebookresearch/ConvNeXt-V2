@@ -23,6 +23,8 @@ import torch.backends.cudnn as cudnn
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
+from models.conv_autoencoder import Autoencoder
+
 def add_weight_decay(model, weight_decay=1e-5, skip_list=()):
     decay = []
     no_decay = []
@@ -37,7 +39,7 @@ def add_weight_decay(model, weight_decay=1e-5, skip_list=()):
         {'params': no_decay, 'weight_decay': 0.},
         {'params': decay, 'weight_decay': weight_decay}]
 
-from engine_pretrain import train_one_epoch
+from engine_pretrain import train_one_epoch,val_epoch
 import models.fcmae as fcmae
 
 import utils
@@ -48,6 +50,8 @@ def get_args_parser():
     parser = argparse.ArgumentParser('FCMAE pre-training', add_help=False)
     parser.add_argument('--horeka', type=bool,
                     help='If training is on horeka or local machine')
+    parser.add_argument('--debug_convnet', type=bool,
+                    help='Convnet (for debugging)')
     parser.add_argument('--batch_size', default=10, type=int,
                         help='Per GPU batch size')
     parser.add_argument('--epochs', default=5000, type=int)
@@ -81,7 +85,7 @@ def get_args_parser():
                         help='weight decay (default: 0.05)')
     parser.add_argument('--lr', type=float, default=None, metavar='LR',
                         help='learning rate (absolute lr)')
-    parser.add_argument('--blr', type=float, default=1.5e-4, metavar='LR',
+    parser.add_argument('--blr', type=float, default=1.5e-3, metavar='LR',
                         help='base learning rate: absolute_lr = base_lr * total_batch_size / 256')
     parser.add_argument('--min_lr', type=float, default=0., metavar='LR',
                         help='lower lr bound for cyclic schedulers that hit 0')
@@ -135,14 +139,22 @@ def main(args):
     
     # simple augmentation
     transform_train = transforms.Compose([
-            transforms.RandomResizedCrop(args.input_size, scale=(0.2, 1.0), interpolation=3,ratio=(1,1)),  # 3 is bicubic
+            #transforms.RandomResizedCrop(args.input_size, scale=(1.0, 1.0), interpolation=3,ratio=(1,1)),  # 3 is bicubic
+            transforms.RandomCrop(args.input_size),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             transforms.Grayscale()
     ])
     dataset_train = datasets.ImageFolder(os.path.join(args.data_path, 'train'), transform=transform_train)
-    print(dataset_train)
+    
+    
+    # Validation data
+    transform_val = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Grayscale()
+    ])
+    dataset_val = datasets.ImageFolder(os.path.join(args.data_path, 'val'), transform=transform_val)
 
     num_tasks = utils.get_world_size()
     global_rank = utils.get_rank()
@@ -151,6 +163,11 @@ def main(args):
         dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True, seed=args.seed,
     )
     print("Sampler_train = %s" % str(sampler_train))
+    
+    sampler_val = torch.utils.data.DistributedSampler(
+        dataset_val, num_replicas=num_tasks, rank=global_rank, shuffle=False, seed=args.seed,
+    )
+    print("Sampler_val = %s" % str(sampler_val))
 
     if global_rank == 0 and args.log_dir is not None:
         os.makedirs(args.log_dir, exist_ok=True)
@@ -166,21 +183,33 @@ def main(args):
         pin_memory=args.pin_mem,
         drop_last=True,
     )
+    
+    data_loader_val = torch.utils.data.DataLoader(
+        dataset_train, sampler=sampler_val,
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
+        pin_memory=args.pin_mem,
+        drop_last=True,
+    )
 
     # define the model
     if args.horeka:
         torch.cuda.set_device(device)
-    model = fcmae.__dict__[args.model](
-        mask_ratio=args.mask_ratio,
-        img_size=args.input_size,
-        decoder_depth=args.decoder_depth,
-        decoder_embed_dim=args.decoder_embed_dim,
-        norm_pix_loss=args.norm_pix_loss,
-        patch_size=args.patch_size,
-        sigmoid = args.sigmoid,
-        use_fpn = args.use_fpn
-    )
+    if args.debug_convnet:
+        model = Autoencoder()
+    else:
+        model = fcmae.__dict__[args.model](
+            mask_ratio=args.mask_ratio,
+            img_size=args.input_size,
+            decoder_depth=args.decoder_depth,
+            decoder_embed_dim=args.decoder_embed_dim,
+            norm_pix_loss=args.norm_pix_loss,
+            patch_size=args.patch_size,
+            sigmoid = args.sigmoid,
+            use_fpn = args.use_fpn
+        )
     model.to(device)
+        
 
     model_without_ddp = model
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -206,7 +235,7 @@ def main(args):
 
     run = wandb.init(
         project="sem-segmentation-convnextv2",
-        mode="disabled",
+        mode="online",
         group=datetime.now().strftime("%Y/%d/%m/%H/%M"),
         config={
             "input_size": args.input_size,
@@ -254,18 +283,46 @@ def main(args):
         model.load_state_dict(preloaded_weights,strict=False)     
 
     print(f"Start training for {args.epochs} epochs")
+    
+    # load existing top 5 val losses if they are present
+    top_5_losses = []
     start_time = time.time()
     for epoch in range(args.start_epoch, args.epochs):
         if hasattr(args,'distributed'):
             data_loader_train.sampler.set_epoch(epoch)
+            data_loader_val.sampler.set_epoch(epoch)
         if log_writer is not None:
             log_writer.set_step(epoch * num_training_steps_per_epoch * args.update_freq)
         train_stats = train_one_epoch(
-            model, data_loader_train,
-            optimizer, device, epoch, loss_scaler,
+            model, 
+            data_loader_train,
+            optimizer, 
+            device, 
+            epoch, 
+            loss_scaler,
             log_writer=log_writer,
             args=args
         )
+        val_stats = val_epoch(
+            model,
+            data_loader_val,
+            device,
+            args
+        )
+        val_loss = val_stats['val_loss']
+        # Update top_5_losses
+        if len(top_5_losses) < 5:
+            checkpoint_path = utils.save_model_val_loss(args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
+                                                        loss_scaler=loss_scaler, epoch=epoch,val_loss=val_loss)
+            top_5_losses.append((epoch, val_loss,checkpoint_path))
+            top_5_losses.sort(key=lambda x: x[1], reverse=True)
+        else:
+            if val_loss < top_5_losses[0][1]:
+                checkpoint_path = utils.save_model_val_loss(args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
+                                                            loss_scaler=loss_scaler, epoch=epoch,val_loss=val_loss)
+                os.remove(top_5_losses[0][2])
+                top_5_losses[0] = (epoch, val_loss,checkpoint_path)
+                top_5_losses.sort(key=lambda x: x[1], reverse=True)
         if args.output_dir and args.save_ckpt:
             if (epoch + 1) % args.save_ckpt_freq == 0 or epoch + 1 == args.epochs:
                 utils.save_model(
@@ -277,10 +334,12 @@ def main(args):
                     args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                     loss_scaler=loss_scaler, epoch=epoch)
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
-                        'epoch': epoch,
-                        'n_parameters': n_parameters}
+                     **{f'{k}': v for k, v in val_stats.items()},
+                    'epoch': epoch,
+                    'n_parameters': n_parameters}
         wandb.log({"epoch": epoch, "n_parameters": n_parameters})
         wandb.log({f'train_{k}': v for k, v in train_stats.items()})
+        wandb.log({f'{k}': v for k, v in val_stats.items()})
         if args.output_dir and utils.is_main_process():
             if log_writer is not None:
                 log_writer.flush()
