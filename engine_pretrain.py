@@ -13,16 +13,47 @@ from typing import Iterable
 import torch
 import utils
 
+print_freq = 20
+
+
+def val_epoch(
+        model: torch.nn.Module,
+        data_loader: Iterable, 
+        device: torch.device,
+        args=None
+        ):
+    model.train(False)
+    metric_logger = utils.MetricLogger(delimiter="  ")
+    header = 'Validation: '
+    for data_iter_step, (samples, labels) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+        if not isinstance(samples, list):
+            samples = samples.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
+        loss, _, _ = model(samples, labels, mask_ratio=args.mask_ratio)
+        loss_value = loss.item()
+
+        if not math.isfinite(loss_value):
+            print("Loss is {}, stopping training".format(loss_value))
+            sys.exit(1)
+        loss_value_reduce = utils.all_reduce_mean(loss_value)
+        metric_logger.update(val_loss=loss_value_reduce)
+        torch.cuda.empty_cache()
+    metric_logger.synchronize_between_processes()
+    print("Averaged stats:", metric_logger)
+    return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+
 def train_one_epoch(model: torch.nn.Module,
-                    data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, loss_scaler,
+                    data_loader: Iterable, 
+                    optimizer: torch.optim.Optimizer,
+                    device: torch.device, 
+                    epoch: int, 
+                    loss_scaler,
                     log_writer=None,
                     args=None):
     model.train(True)
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     header = 'Epoch: [{}]'.format(epoch)
-    print_freq = 20
 
     update_freq = args.update_freq
 
