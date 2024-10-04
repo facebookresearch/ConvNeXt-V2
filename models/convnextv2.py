@@ -85,7 +85,7 @@ class ConvNeXtV2(nn.Module):
         self.norm = nn.LayerNorm(dims[-1], eps=1e-6) # final norm layer
         self.head = nn.Linear(dims[-1], num_classes)
 
-        self.apply(self._init_weights)
+        #self.apply(self._init_weights)
         self.head.weight.data.mul_(head_init_scale)
         self.head.bias.data.mul_(head_init_scale)
 

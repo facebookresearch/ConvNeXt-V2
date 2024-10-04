@@ -27,7 +27,7 @@ from datasets import build_dataset
 from engine_finetune import train_one_epoch, evaluate
 
 import utils
-from utils import NativeScalerWithGradNormCount as NativeScaler
+from utils import NativeScalerWithGradNormCount as NativeScaler, dedense_checkpoint_keys
 from utils import str2bool, remap_checkpoint_keys
 import models.convnextv2 as convnextv2
 
@@ -274,7 +274,10 @@ def main(args):
                 print(f"Removing key {k} from pretrained checkpoint")
                 del checkpoint_model[k]
         
-        checkpoint_model = remap_checkpoint_keys(checkpoint_model)
+        checkpoint_model_new = remap_checkpoint_keys(checkpoint_model)
+
+        remapped_checkpoint_model = dedense_checkpoint_keys(checkpoint_model_new)
+
         utils.load_state_dict(model, checkpoint_model, prefix=args.model_prefix)
         
         # manually initialize fc layer

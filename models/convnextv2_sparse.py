@@ -7,8 +7,13 @@
 
 
 import torch
+import math
 import torch.nn as nn
 from timm.models.layers import trunc_normal_
+
+from models.sparse_feature_pyramid_nework import SparseFeaturePyramidNetwork, SparseLastLevelMaxPool
+from torchvision.ops.feature_pyramid_network import LastLevelMaxPool
+
 
 from .utils import (
     LayerNorm,
@@ -67,18 +72,20 @@ class SparseConvNeXtV2(nn.Module):
         head_init_scale (float): Init scaling value for classifier weights and biases. Default: 1.
     """
     def __init__(self, 
+                 patch_size=32,
                  in_chans=3, 
                  num_classes=1000, 
                  depths=[3, 3, 9, 3], 
                  dims=[96, 192, 384, 768], 
                  drop_path_rate=0., 
+                 use_fpn=False,
                  D=3):
         super().__init__()
         self.depths = depths
         self.num_classes = num_classes
         self.downsample_layers = nn.ModuleList() # stem and 3 intermediate downsampling conv layers
         stem = nn.Sequential(
-            nn.Conv2d(in_chans, dims[0], kernel_size=4, stride=4),
+            nn.Conv2d(in_chans, dims[0], kernel_size=(patch_size//8), stride=(patch_size//8)),
             LayerNorm(dims[0], eps=1e-6, data_format="channels_first")
         )
         self.downsample_layers.append(stem)
@@ -98,19 +105,28 @@ class SparseConvNeXtV2(nn.Module):
             )
             self.stages.append(stage)
             cur += depths[i]
+            
+        # feature pyramid network
+        if use_fpn:
+            self.fpn = SparseFeaturePyramidNetwork(
+                        in_channels_list=[128, 256, 512, 1024],
+                        out_channels=256,
+                        extra_blocks=SparseLastLevelMaxPool(),
+            )
+        self.use_fpn = use_fpn
 
-        self.apply(self._init_weights)
-        
+        self.apply(self._init_weights)# init weights fuer fpn
+      
     def _init_weights(self, m):
-        if isinstance(m, MinkowskiConvolution):
-            trunc_normal_(m.kernel, std=.02)
-            nn.init.constant_(m.bias, 0)
-        if isinstance(m, MinkowskiDepthwiseConvolution):
-            trunc_normal_(m.kernel, std=.02)
-            nn.init.constant_(m.bias, 0)
-        if isinstance(m, MinkowskiLinear):
-            trunc_normal_(m.linear.weight, std=.02)
-            nn.init.constant_(m.linear.bias, 0)
+        if isinstance(m, MinkowskiConvolution) or isinstance(m, MinkowskiDepthwiseConvolution):
+            # trunc_normal_(m.kernel, std=.02)
+            # nn.init.constant_(m.bias, 0)
+            with torch.no_grad():
+                n = (m.in_channels) * m.kernel_generator.kernel_volume
+                stdv = 1.0 / math.sqrt(n)
+                m.kernel.data.uniform_(-stdv, stdv)
+                if m.bias is not None:
+                    m.bias.data.uniform_(-stdv, stdv)
 
     def upsample_mask(self, mask, scale):
         assert len(mask.shape) == 2
@@ -120,8 +136,8 @@ class SparseConvNeXtV2(nn.Module):
                     repeat_interleave(scale, axis=2)
 
     def forward(self, x, mask):
-        num_stages = len(self.stages)
-        mask = self.upsample_mask(mask, 2**(num_stages-1))        
+        scale = int(x.shape[2] // self.downsample_layers[0][0].kernel_size[0] / (mask.shape[1] ** .5))
+        mask = self.upsample_mask(mask, scale)        
         mask = mask.unsqueeze(1).type_as(x)
         
         # patch embedding
@@ -130,10 +146,15 @@ class SparseConvNeXtV2(nn.Module):
         
         # sparse encoding
         x = to_sparse(x)
+        x_dict = {}
         for i in range(4):
             x = self.downsample_layers[i](x) if i > 0 else x
             x = self.stages[i](x)
-        
-        # densify
-        x = x.dense()[0]
+            x_dict[str(i)] = x
+            
+        if self.use_fpn:   
+            x = self.fpn(x_dict)
+            x = x['0'].dense()[0]
+        else:
+            x = x.dense()[0]
         return x
