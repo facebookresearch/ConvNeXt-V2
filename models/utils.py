@@ -12,25 +12,32 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from MinkowskiEngine import SparseTensor
-
+        
 class MinkowskiGRN(nn.Module):
-    """ GRN layer for sparse tensors.
-    """
     def __init__(self, dim):
         super().__init__()
         self.gamma = nn.Parameter(torch.zeros(1, dim))
         self.beta = nn.Parameter(torch.zeros(1, dim))
 
     def forward(self, x):
-        cm = x.coordinate_manager
-        in_key = x.coordinate_map_key
+        batch_index = x.C[:, 0] 
+        num_batches = batch_index.max().item() + 1
+        num_channels = x.F.shape[1]
 
-        Gx = torch.norm(x.F, p=2, dim=0, keepdim=True)
-        Nx = Gx / (Gx.mean(dim=-1, keepdim=True) + 1e-6)
-        return SparseTensor(
-                self.gamma * (x.F * Nx) + self.beta + x.F,
-                coordinate_map_key=in_key,
-                coordinate_manager=cm)
+        sum_of_squares = torch.zeros([num_batches, num_channels], device=x.F.device, dtype=x.F.dtype)
+        sum_of_squares.index_add_(dim=0, index=batch_index, source=x.F.square())
+        Gx_per_batch = sum_of_squares.sqrt()
+
+        Nx_per_batch = Gx_per_batch / (Gx_per_batch.mean(dim=-1, keepdim=True) + 1e-6)
+        out_feat = x.F + self.gamma * (x.F * Nx_per_batch[batch_index]) + self.beta
+
+        out = SparseTensor(
+            features=out_feat,
+            coordinate_manager=x.coordinate_manager,
+            coordinate_map_key=x.coordinate_map_key
+        )
+
+        return out
 
 class MinkowskiDropPath(nn.Module):
     """ Drop Path for sparse tensors.
